@@ -1,8 +1,11 @@
 // ====== COOKING MOD ======
 
 // ---- Clump fall core (shared) ----
-// A connected blob of the SAME element falls straight down together as ONE
-// clump. On landing, SUPPORTPOWDER gives it a small slump (not a powder spread).
+// A connected blob of the SAME element acts as one RIGID body: it falls straight
+// down together ONLY if every part of it is unsupported. If any part rests on
+// something, the whole blob stays put -- overhangs included, since they're
+// attached to the grounded part. The core itself never breaks apart -- any
+// crumbling/cracking is decided by the `onLand` callback below.
 // `onLand` is an optional per-pixel handler called the moment the clump lands.
 function clumpFallCore(pixel, onLand) {
     if (pixel._rfTick === pixelTicks) { return; }   // blob already handled this frame
@@ -42,16 +45,30 @@ function clumpFallCore(pixel, onLand) {
         for (var i = 0; i < blob.length; i++) {
             var p = blob[i];
             movePixel(p, p.x, p.y + 1);
-            p.fallen = (p.fallen || 0) + 1;   // track vertical drop
-            p.start = pixelTicks;             // suppress this frame's SUPPORTPOWDER move
+            p.fallen = (p.fallen || 0) + 1;   // track vertical drop (for egg cracking)
         }
     } else if (onLand) {
         for (var i = 0; i < blob.length; i++) { onLand(blob[i]); }
     }
 }
 
-// Normal clump fall (no special landing)
-function clumpFall(pixel) { clumpFallCore(pixel, null); }
+// Loose-powder settle for a pixel that has crumbled.
+function powderSettle(pixel) {
+    if (tryMove(pixel, pixel.x, pixel.y + 1)) { return; }   // straight down
+    var dir = Math.random() < 0.5 ? 1 : -1;                 // then a diagonal
+    if (tryMove(pixel, pixel.x + dir, pixel.y + 1)) { return; }
+    tryMove(pixel, pixel.x - dir, pixel.y + 1);
+}
+
+// Clump fall: falls as a rigid block while airborne. The moment it LANDS after
+// having fallen at all, it crumbles into loose powder. Placed flush on the floor
+// (0 px drop, never falls) -> stays a solid block.
+function clumpFall(pixel) {
+    if (pixel.crumbled) { powderSettle(pixel); return; }    // already crumbled -> act like powder
+    clumpFallCore(pixel, function(p) {
+        if ((p.fallen || 0) > 0) { p.crumbled = true; }     // landed after a fall -> crumble
+    });
+}
 
 // Egg: if it fell from EGG_CRACK_HEIGHT+ pixels up, it cracks into Yolk + Egg_white.
 var EGG_CRACK_HEIGHT = 11;
@@ -78,7 +95,7 @@ elements.Cooking_Oil = {
 }
 elements.Vanilla = {
     color: "#704500", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 880
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 880
 }
 elements.Heavy_cream = {
     color: "#ededed", category: "cooking",
@@ -116,7 +133,7 @@ elements.Oats = {
 }
 elements.Cocoa = {
     color: "#654808", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 500
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 500
 }
 elements.Black_pepper = {
     color: "#565656", category: "cooking",
@@ -170,123 +187,123 @@ elements.Yeast = {
 // --- FRUITS ---
 elements.Lemons = {
     color: "#dbe128", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 920
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 920
 }
 elements.Limes = {
     color: "#3baa41", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 920
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 920
 }
 elements.Apples = {
     color: "#d20b0b", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 840
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 840
 }
 elements.Avocado = {
     color: "#21511a", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 950
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 950
 }
 elements.Bananas = {
     color: "#c3db3e", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 950
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 950
 }
 elements.Oranges = {
     color: "#e3830d", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 900
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 900
 }
 elements.Mangoes = {
     color: "#c57026", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1000
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1000
 }
 elements.Watermelon = {
     color: "#1c5b19", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 950
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 950
 }
 elements.Strawberries = {
     color: "#e42727", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 880
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 880
 }
 elements.Cherries = {
     color: "#c60707", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 900
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 900
 }
 elements.Grapes = {
     color: "#69118c", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 970
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 970
 }
 elements.Blueberries = {
     color: "#232593", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 880
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 880
 }
 elements.Blackberries = {
     color: "#290024", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 880
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 880
 }
 
 // --- VEGETABLES ---
 elements.Lettuce = {
     color: "#28bd2f", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 350
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 350
 }
 elements.Cucumbers = {
     color: "#0b4b0c", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 960
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 960
 }
 elements.Tomato = {
     color: "#a61b1b", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 950
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 950
 }
 elements.Bell_peppers = {
     color: "#00640e", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 600
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 600
 }
 elements.Chilli = {
     color: "#a52d2d", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 600
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 600
 }
 elements.Onions = {
     color: "#8a274c", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 900
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 900
 }
 elements.Shallots = {
     color: "#6a5736", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 900
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 900
 }
 elements.Garlic = {
     color: "#dbd3d3", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 900
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 900
 }
 elements.Ginger = {
     color: "#b0935a", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 800
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 800
 }
 elements.Carrots = {
     color: "#e18c14", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 640
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 640
 }
 elements.Potatoes = {
     color: "#9f7530", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1080
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1080
 }
 elements.Broccoli = {
     color: "#1e711f", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 370
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 370
 }
 elements.Cauliflower = {
     color: "#e5dcdc", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 370
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 370
 }
 elements.Brussels_sprouts = {
     color: "#197214", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 500
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 500
 }
 elements.Peas = {
     color: "#205d1b", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 820
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 820
 }
 
 // --- HERBS ---
 elements.Mint = {
     color: "#0b4706", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 300
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 300
 }
 elements.Oregano = {
     color: "#156d24", category: "cooking",
@@ -322,75 +339,75 @@ elements.Pistachios = {
 // --- MEAT & POULTRY ---
 elements.Chicken = {
     color: "#dfb980", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1050
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1050
 }
 elements.Turkey = {
     color: "#8f634e", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1050
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1050
 }
 elements.Pork = {
     color: "#9b4872", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1050
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1050
 }
 elements.Ham = {
     color: "#e37dd7", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1050
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1050
 }
 elements.Bacon = {
     color: "#641a08", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1000
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1000
 }
 elements.Steak = {
     color: "#a61f2c", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1080
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1080
 }
 
 // --- SEAFOOD ---
 elements.Cod = {
     color: "#dec393", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1050
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1050
 }
 elements.Salmon = {
     color: "#e19288", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1050
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1050
 }
 elements.Shrimp = {
     color: "#f2a89e", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1050
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1050
 }
 elements.Crab = {
     color: "#ff4a4a", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1080
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1080
 }
 elements.Lobster = {
     color: "#c61919", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1080
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1080
 }
 elements.Octopus = {
     color: "#cfa7a7", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1060
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1060
 }
 elements.Scallops = {
     color: "#cbd5cc", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1060
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1060
 }
 elements.Seaweed = {
     color: "#0e4a16", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 900
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 900
 }
 
 // --- DAIRY & EGG ---
 elements.Butter = {
     color: "#d6ec2d", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 910
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 910
 }
 elements.Cheese = {
     color: "#e4f00e", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 1100
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 1100
 }
 elements.Egg = {
     color: "#e4d375", category: "cooking",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: eggClumpFall, density: 1030
+    state: "solid", behavior: behaviors.WALL, tick: eggClumpFall, density: 1030
 }
 
 // ====== PREPARED ITEMS (made from base ingredients) ======
@@ -425,7 +442,29 @@ elements.Yeasty_dough = {
 }
 elements.Bread = {
     color: "#c89b5a", category: "prepared",
-    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 400
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 400
+}
+
+// --- Grated items (made with the Grate tool) ---
+elements.Breadcrumbs = {
+    color: "#c79a5b", category: "prepared",
+    state: "solid", behavior: behaviors.POWDER, density: 350
+}
+elements.Grated_cheese = {
+    color: "#f1d23a", category: "prepared",
+    state: "solid", behavior: behaviors.POWDER, density: 380
+}
+elements.Orange_zest = {
+    color: "#e08a1e", category: "prepared",
+    state: "solid", behavior: behaviors.POWDER, density: 300
+}
+elements.Lemon_zest = {
+    color: "#e3d24a", category: "prepared",
+    state: "solid", behavior: behaviors.POWDER, density: 300
+}
+elements.Lime_zest = {
+    color: "#8fc23a", category: "prepared",
+    state: "solid", behavior: behaviors.POWDER, density: 300
 }
 
 // ====== MACHINES ======
@@ -460,6 +499,24 @@ elements.Lamp = {
         if (pixel.charge) { pixel.color = "#ffff66"; }   // ON
         else              { pixel.color = "#555500"; }   // OFF
     }
+}
+
+// ====== TOOLS ======
+
+// --- Grate tool: drag over Bread -> Breadcrumbs, or Cheese -> Grated cheese.
+//     Works like the built-in heat/cool tools (select it, then paint over food).
+elements.grate = {
+    name: "grate",
+    color: "#cfcfcf", category: "tools",
+    canPlace: false,
+    tool: function(pixel) {
+        if (pixel.element === "Bread")       { changePixel(pixel, "Breadcrumbs"); }
+        else if (pixel.element === "Cheese") { changePixel(pixel, "Grated_cheese"); }
+        else if (pixel.element === "Oranges") { changePixel(pixel, "Orange_zest"); }
+        else if (pixel.element === "Lemons")  { changePixel(pixel, "Lemon_zest"); }
+        else if (pixel.element === "Limes")   { changePixel(pixel, "Lime_zest"); }
+    },
+    desc: "Grate Bread -> breadcrumbs, Cheese -> grated cheese, citrus -> zest."
 }
 
 // --- Mouse hook: clicking any Flip_switch pixel toggles the whole connected
@@ -510,15 +567,19 @@ if (!window._flipSwitchClickHook) {
 // ====== RECIPE BOOK ======
 // Adds a "Recipes" button to the bottom control row (next to Reset/Saves/Elem).
 // It opens a browser of every food item: how to make it, and what it makes.
-// Click any item to jump to its recipe, and so on.
 
-// Recipe data: result element -> { from:[ingredients], note: optional method }
+// Recipe data: result element -> { from:[ingredients], any:bool, note: method }
 var cookingRecipes = {
-    "Dough":        { from: ["Plain_flour", "water"] },
-    "Yeasty_dough": { from: ["Dough", "Yeast"] },
-    "Bread":        { from: ["Yeasty_dough", "Sugar"] },
-    "Yolk":         { from: ["Egg"], note: "Crack an Egg by dropping it " + EGG_CRACK_HEIGHT + "+ pixels." },
-    "Egg_white":    { from: ["Egg"], note: "Crack an Egg by dropping it " + EGG_CRACK_HEIGHT + "+ pixels." }
+    "Dough":         { from: ["Plain_flour", "water"] },
+    "Yeasty_dough":  { from: ["Dough", "Yeast"] },
+    "Bread":         { from: ["Yeasty_dough", "Sugar"] },
+    "Yolk":          { from: ["Egg"], note: "Crack an Egg by dropping it " + EGG_CRACK_HEIGHT + "+ pixels." },
+    "Egg_white":     { from: ["Egg"], note: "Crack an Egg by dropping it " + EGG_CRACK_HEIGHT + "+ pixels." },
+    "Breadcrumbs":   { from: ["Bread"],  note: "Use the Grate tool on Bread." },
+    "Grated_cheese": { from: ["Cheese"], note: "Use the Grate tool on Cheese." },
+    "Orange_zest":   { from: ["Oranges"], note: "Grate Oranges with the Grate tool." },
+    "Lemon_zest":    { from: ["Lemons"],  note: "Grate Lemons with the Grate tool." },
+    "Lime_zest":     { from: ["Limes"],   note: "Grate Limes with the Grate tool." }
 };
 
 function recipeName(e) {
@@ -570,7 +631,17 @@ function ensureRecipeStyle() {
             "text-transform:uppercase;opacity:.55;border-bottom:1px solid #3a3a3a;padding-bottom:4px;}" +
         "#recipeBookPanel .recipeNav{background:#333;border:1px solid #555;color:#eee;border-radius:6px;" +
             "padding:4px 10px;cursor:pointer;font-size:13px;}" +
-        "#recipeBookPanel .recipeNav:hover{background:#454545;}";
+        "#recipeBookPanel .recipeNav:hover{background:#454545;}" +
+        "#recipeBookPanel #recipeSearch{width:100%;box-sizing:border-box;margin:8px 0 2px;padding:7px 10px;" +
+            "border:1px solid #555;border-radius:8px;background:#2b2b2b;color:#eee;font-size:14px;outline:none;}" +
+        "#recipeBookPanel #recipeSearch:focus{border-color:#8aa57a;}" +
+        "#recipeBookPanel #recipeSearch::placeholder{color:#888;}" +
+        "#recipeBookPanel .recipeCrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:1px;margin:6px 0 2px;}" +
+        "#recipeBookPanel .recipeCrumb{background:none;border:none;color:#8fd0c8;cursor:pointer;font-size:12px;" +
+            "padding:2px 4px;border-radius:4px;}" +
+        "#recipeBookPanel .recipeCrumb:hover{background:#333;text-decoration:underline;}" +
+        "#recipeBookPanel .recipeCrumb.current{color:#eee;font-weight:bold;cursor:default;text-decoration:none;}" +
+        "#recipeBookPanel .recipeCrumbSep{opacity:.4;font-size:12px;}";
     document.head.appendChild(s);
 }
 
@@ -586,13 +657,18 @@ function ensureRecipePanel() {
         "background:#1e1e1e;color:#eee;border:1px solid #555;border-radius:12px;" +
         "padding:16px;z-index:99999;font-family:sans-serif;font-size:14px;" +
         "box-shadow:0 12px 48px #000b;display:none;";
-    panel.addEventListener("click", function(ev) {   // event delegation for chips/nav
+    panel.addEventListener("click", function(ev) {   // event delegation for chips/nav/crumbs
         var t = ev.target;
-        while (t && t !== panel && !t.dataset.relem && !t.dataset.rnav) { t = t.parentNode; }
+        while (t && t !== panel && !t.dataset.relem && !t.dataset.rnav && t.dataset.rcrumb === undefined) { t = t.parentNode; }
         if (!t || t === panel) { return; }
-        if (t.dataset.relem)            { showRecipeDetail(t.dataset.relem); }
-        else if (t.dataset.rnav === "index") { showRecipeIndex(); }
-        else if (t.dataset.rnav === "close") { closeRecipeBook(); }
+        if (t.dataset.relem)                     { recipeNavTo(t.dataset.relem); }
+        else if (t.dataset.rcrumb !== undefined) {
+            var idx = parseInt(t.dataset.rcrumb, 10);
+            recipeTrail = recipeTrail.slice(0, idx + 1);
+            showRecipeDetail(recipeTrail[idx]);
+        }
+        else if (t.dataset.rnav === "index")     { showRecipeIndex(); }
+        else if (t.dataset.rnav === "close")     { closeRecipeBook(); }
     });
     document.body.appendChild(panel);
     return panel;
@@ -602,36 +678,65 @@ function closeRecipeBook() {
     var p = document.getElementById("recipeBookPanel");
     if (p) { p.style.display = "none"; }
 }
-function recipeHeader(withBack) {
-    var h = '<div style="display:flex;justify-content:space-between;align-items:center;' +
-        'border-bottom:1px solid #3a3a3a;padding-bottom:10px;margin-bottom:4px;">';
-    h += '<b style="font-size:18px;">Recipe Book</b><span style="display:flex;gap:6px;">';
-    if (withBack) { h += '<button class="recipeNav" data-rnav="index">&larr; All foods</button>'; }
-    h += '<button class="recipeNav" data-rnav="close">&#10005;</button></span></div>';
-    return h;
+var recipeTrail = [];   // breadcrumb path of visited items
+
+function recipeHeader() {
+    return '<div style="display:flex;justify-content:space-between;align-items:center;' +
+        'border-bottom:1px solid #3a3a3a;padding-bottom:10px;margin-bottom:6px;">' +
+        '<b style="font-size:18px;">Recipe Book</b>' +
+        '<button class="recipeNav" data-rnav="close">&#10005;</button></div>';
 }
-function showRecipeIndex() {
-    var panel = ensureRecipePanel();
-    var html = recipeHeader(false);
-    html += '<div style="opacity:.7;margin:4px 0 2px;font-size:13px;">Tap a food to see how it\'s made and what it makes.</div>';
+function recipeBreadcrumb() {
+    var h = '<div class="recipeCrumbs"><button class="recipeCrumb" data-rnav="index">All foods</button>';
+    for (var i = 0; i < recipeTrail.length; i++) {
+        var last = (i === recipeTrail.length - 1);
+        h += '<span class="recipeCrumbSep">&rsaquo;</span>';
+        h += '<button class="recipeCrumb' + (last ? ' current' : '') + '" data-rcrumb="' + i + '">' +
+            recipeName(recipeTrail[i]) + '</button>';
+    }
+    return h + '</div>';
+}
+function recipeNavTo(e) { recipeTrail.push(e); showRecipeDetail(e); }
+
+function renderRecipeList(filter) {
+    var container = document.getElementById("recipeResults");
+    if (!container) { return; }
+    filter = (filter || "").toLowerCase();
     var groups = { "Ingredients": [], "Prepared": [] };
     var list = recipeFoodList();
     for (var i = 0; i < list.length; i++) {
+        if (filter && recipeName(list[i]).toLowerCase().indexOf(filter) === -1) { continue; }
         if (elements[list[i]].category === "prepared") { groups["Prepared"].push(list[i]); }
         else { groups["Ingredients"].push(list[i]); }
     }
+    var html = "", any = false;
     ["Ingredients", "Prepared"].forEach(function(g) {
         if (!groups[g].length) { return; }
+        any = true;
         html += '<div class="recipeSection">' + g + ' (' + groups[g].length + ')</div><div>';
         for (var i = 0; i < groups[g].length; i++) { html += recipeChip(groups[g][i]); }
         html += '</div>';
     });
-    panel.innerHTML = html;
+    if (!any) { html = '<div style="opacity:.6;margin-top:14px;">No foods match that search.</div>'; }
+    container.innerHTML = html;
+}
+
+function showRecipeIndex() {
+    recipeTrail = [];
+    var panel = ensureRecipePanel();
+    panel.innerHTML = recipeHeader() +
+        '<input id="recipeSearch" type="text" placeholder="Search foods...">' +
+        '<div id="recipeResults"></div>';
+    var search = document.getElementById("recipeSearch");
+    search.addEventListener("input", function() { renderRecipeList(this.value); });
+    search.addEventListener("keydown", function(ev) { ev.stopPropagation(); }); // don't trigger game keybinds
+    renderRecipeList("");
+    search.focus();
 }
 function showRecipeDetail(e) {
     var panel = ensureRecipePanel();
-    var html = recipeHeader(true);
-    html += '<div style="display:flex;align-items:center;gap:10px;margin:12px 0 2px;">' +
+    var html = recipeHeader() + recipeBreadcrumb();
+    html += '<div style="display:flex;align-items:center;gap:10px;margin:10px 0 2px;">' +
         '<span class="recipeSwatch" style="width:28px;height:28px;border-radius:7px;background:' + recipeColor(e) + '"></span>' +
         '<span style="font-size:20px;font-weight:bold;">' + recipeName(e) + '</span></div>';
 
@@ -639,7 +744,9 @@ function showRecipeDetail(e) {
     html += '<div class="recipeSection">How to make it</div>';
     if (r) {
         if (r.note) { html += '<div style="opacity:.85;margin:2px 0 6px;font-size:13px;">' + r.note + '</div>'; }
-        html += '<div>' + r.from.map(recipeChip).join('<span style="opacity:.5;margin:0 3px;">+</span>') + '</div>';
+        var sep = r.any ? '<span style="opacity:.5;margin:0 4px;">or</span>'   // any one of these
+                        : '<span style="opacity:.5;margin:0 3px;">+</span>';   // all combined
+        html += '<div>' + r.from.map(recipeChip).join(sep) + '</div>';
     } else {
         html += '<div style="opacity:.7;font-size:13px;">Base ingredient — grab it from the menu.</div>';
     }
