@@ -53,8 +53,8 @@ function clumpFallCore(pixel, onLand) {
 // Normal clump fall (no special landing)
 function clumpFall(pixel) { clumpFallCore(pixel, null); }
 
-// Egg: if it fell from 33+ pixels up, it cracks into Yolk + Egg_white on impact.
-var EGG_CRACK_HEIGHT = 33;
+// Egg: if it fell from EGG_CRACK_HEIGHT+ pixels up, it cracks into Yolk + Egg_white.
+var EGG_CRACK_HEIGHT = 11;
 function eggClumpFall(pixel) {
     clumpFallCore(pixel, function(p) {
         if ((p.fallen || 0) >= EGG_CRACK_HEIGHT) {
@@ -65,7 +65,7 @@ function eggClumpFall(pixel) {
     });
 }
 
-// ====== INGREDIENTS ======
+// ====== INGREDIENTS (base "cooking" category) ======
 
 // --- LIQUIDS ---
 elements.Cooking_Alcohol = {
@@ -126,9 +126,13 @@ elements.Garlic_powder = {
     color: "#d6d6d6", category: "cooking",
     state: "solid", behavior: behaviors.POWDER, density: 550
 }
+// flour + water -> Dough  (start of the bread recipe)
 elements.Plain_flour = {
     color: "#d4d4d4", category: "cooking",
-    state: "solid", behavior: behaviors.POWDER, density: 600
+    state: "solid", behavior: behaviors.POWDER, density: 600,
+    reactions: {
+        "water": { elem1: "Dough", elem2: null, chance: 0.1 }
+    }
 }
 elements.Self_raising_flour = {
     color: "#e5e2e2", category: "cooking",
@@ -157,6 +161,10 @@ elements.Sea_salt = {
 elements.Baking_soda = {
     color: "#ffffff", category: "cooking",
     state: "solid", behavior: behaviors.POWDER, density: 2200
+}
+elements.Yeast = {
+    color: "#e8d8a0", category: "cooking",
+    state: "solid", behavior: behaviors.POWDER, density: 500
 }
 
 // --- FRUITS ---
@@ -384,13 +392,40 @@ elements.Egg = {
     color: "#e4d375", category: "cooking",
     state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: eggClumpFall, density: 1030
 }
+
+// ====== PREPARED ITEMS (made from base ingredients) ======
+// These live in the "prepared" category, separate from the raw ingredients.
+
 elements.Yolk = {
-    color: "#f4b400", category: "cooking",
+    color: "#f4b400", category: "prepared",
     state: "liquid", behavior: behaviors.LIQUID, viscosity: 8000, density: 1035
 }
 elements.Egg_white = {
-    color: "#f3f0e2", category: "cooking",
+    color: "#f3f0e2", category: "prepared",
     state: "liquid", behavior: behaviors.LIQUID, viscosity: 5000, density: 1040
+}
+
+// --- BREAD RECIPE chain ---
+// flour + water        -> Dough
+// Dough + yeast        -> Yeasty_dough
+// Yeasty_dough + sugar -> Bread
+elements.Dough = {
+    color: "#e8dcc0", category: "prepared",
+    state: "solid", behavior: behaviors.SUPPORTPOWDER, density: 700,
+    reactions: {
+        "Yeast": { elem1: "Yeasty_dough", elem2: null, chance: 0.05 }
+    }
+}
+elements.Yeasty_dough = {
+    color: "#e0d2a8", category: "prepared",
+    state: "solid", behavior: behaviors.SUPPORTPOWDER, density: 700,
+    reactions: {
+        "Sugar": { elem1: "Bread", elem2: null, chance: 0.05 }
+    }
+}
+elements.Bread = {
+    color: "#c89b5a", category: "prepared",
+    state: "solid", behavior: behaviors.SUPPORTPOWDER, tick: clumpFall, density: 400
 }
 
 // ====== MACHINES ======
@@ -471,3 +506,196 @@ if (!window._flipSwitchClickHook) {
         e.preventDefault();
     }, true);
 }
+
+// ====== RECIPE BOOK ======
+// Adds a "Recipes" button to the bottom control row (next to Reset/Saves/Elem).
+// It opens a browser of every food item: how to make it, and what it makes.
+// Click any item to jump to its recipe, and so on.
+
+// Recipe data: result element -> { from:[ingredients], note: optional method }
+var cookingRecipes = {
+    "Dough":        { from: ["Plain_flour", "water"] },
+    "Yeasty_dough": { from: ["Dough", "Yeast"] },
+    "Bread":        { from: ["Yeasty_dough", "Sugar"] },
+    "Yolk":         { from: ["Egg"], note: "Crack an Egg by dropping it " + EGG_CRACK_HEIGHT + "+ pixels." },
+    "Egg_white":    { from: ["Egg"], note: "Crack an Egg by dropping it " + EGG_CRACK_HEIGHT + "+ pixels." }
+};
+
+function recipeName(e) {
+    if (elements[e] && elements[e].name) { return elements[e].name; }
+    return e.replace(/_/g, " ");
+}
+function recipeColor(e) {
+    var c = elements[e] && elements[e].color;
+    if (Array.isArray(c)) { c = c[0]; }
+    return c || "#888";
+}
+function recipeUses(e) {   // recipes that use `e` as an ingredient
+    var out = [];
+    for (var result in cookingRecipes) {
+        if (cookingRecipes[result].from.indexOf(e) !== -1) { out.push(result); }
+    }
+    return out;
+}
+function recipeFoodList() {   // every food item (cooking + prepared)
+    var list = [];
+    for (var e in elements) {
+        var c = elements[e].category;
+        if (c === "cooking" || c === "prepared") { list.push(e); }
+    }
+    list.sort(function(a, b) { return recipeName(a).localeCompare(recipeName(b)); });
+    return list;
+}
+function recipeChip(e) {      // a clickable element pill with a color swatch
+    var badge = cookingRecipes[e] ? '<span class="recipeBadge">recipe</span>' : '';
+    return '<button class="recipeChip" data-relem="' + e + '">' +
+        '<span class="recipeSwatch" style="background:' + recipeColor(e) + '"></span>' +
+        recipeName(e) + badge + '</button>';
+}
+
+function ensureRecipeStyle() {
+    if (document.getElementById("recipeBookStyle")) { return; }
+    var s = document.createElement("style");
+    s.id = "recipeBookStyle";
+    s.textContent =
+        "#recipeBookPanel .recipeChip{display:inline-flex;align-items:center;gap:6px;margin:3px;" +
+            "padding:5px 10px;border:1px solid #444;border-radius:14px;background:#2b2b2b;color:#eee;" +
+            "cursor:pointer;font-size:13px;transition:background .12s,transform .12s,border-color .12s;}" +
+        "#recipeBookPanel .recipeChip:hover{background:#3a3a3a;border-color:#8aa57a;transform:translateY(-1px);}" +
+        "#recipeBookPanel .recipeSwatch{display:inline-block;width:13px;height:13px;border-radius:3px;" +
+            "border:1px solid #000;flex:0 0 auto;}" +
+        "#recipeBookPanel .recipeBadge{font-size:10px;background:#557a3d;color:#eafce0;border-radius:8px;" +
+            "padding:1px 6px;margin-left:2px;}" +
+        "#recipeBookPanel .recipeSection{margin:14px 0 5px;font-size:11px;letter-spacing:.08em;" +
+            "text-transform:uppercase;opacity:.55;border-bottom:1px solid #3a3a3a;padding-bottom:4px;}" +
+        "#recipeBookPanel .recipeNav{background:#333;border:1px solid #555;color:#eee;border-radius:6px;" +
+            "padding:4px 10px;cursor:pointer;font-size:13px;}" +
+        "#recipeBookPanel .recipeNav:hover{background:#454545;}";
+    document.head.appendChild(s);
+}
+
+function ensureRecipePanel() {
+    var panel = document.getElementById("recipeBookPanel");
+    if (panel) { return panel; }
+    ensureRecipeStyle();
+    panel = document.createElement("div");
+    panel.id = "recipeBookPanel";
+    panel.style.cssText =
+        "position:fixed;top:7%;left:50%;transform:translateX(-50%);" +
+        "width:min(94vw,560px);max-height:80vh;overflow:auto;" +
+        "background:#1e1e1e;color:#eee;border:1px solid #555;border-radius:12px;" +
+        "padding:16px;z-index:99999;font-family:sans-serif;font-size:14px;" +
+        "box-shadow:0 12px 48px #000b;display:none;";
+    panel.addEventListener("click", function(ev) {   // event delegation for chips/nav
+        var t = ev.target;
+        while (t && t !== panel && !t.dataset.relem && !t.dataset.rnav) { t = t.parentNode; }
+        if (!t || t === panel) { return; }
+        if (t.dataset.relem)            { showRecipeDetail(t.dataset.relem); }
+        else if (t.dataset.rnav === "index") { showRecipeIndex(); }
+        else if (t.dataset.rnav === "close") { closeRecipeBook(); }
+    });
+    document.body.appendChild(panel);
+    return panel;
+}
+function openRecipeBook() { ensureRecipePanel().style.display = "block"; showRecipeIndex(); }
+function closeRecipeBook() {
+    var p = document.getElementById("recipeBookPanel");
+    if (p) { p.style.display = "none"; }
+}
+function recipeHeader(withBack) {
+    var h = '<div style="display:flex;justify-content:space-between;align-items:center;' +
+        'border-bottom:1px solid #3a3a3a;padding-bottom:10px;margin-bottom:4px;">';
+    h += '<b style="font-size:18px;">Recipe Book</b><span style="display:flex;gap:6px;">';
+    if (withBack) { h += '<button class="recipeNav" data-rnav="index">&larr; All foods</button>'; }
+    h += '<button class="recipeNav" data-rnav="close">&#10005;</button></span></div>';
+    return h;
+}
+function showRecipeIndex() {
+    var panel = ensureRecipePanel();
+    var html = recipeHeader(false);
+    html += '<div style="opacity:.7;margin:4px 0 2px;font-size:13px;">Tap a food to see how it\'s made and what it makes.</div>';
+    var groups = { "Ingredients": [], "Prepared": [] };
+    var list = recipeFoodList();
+    for (var i = 0; i < list.length; i++) {
+        if (elements[list[i]].category === "prepared") { groups["Prepared"].push(list[i]); }
+        else { groups["Ingredients"].push(list[i]); }
+    }
+    ["Ingredients", "Prepared"].forEach(function(g) {
+        if (!groups[g].length) { return; }
+        html += '<div class="recipeSection">' + g + ' (' + groups[g].length + ')</div><div>';
+        for (var i = 0; i < groups[g].length; i++) { html += recipeChip(groups[g][i]); }
+        html += '</div>';
+    });
+    panel.innerHTML = html;
+}
+function showRecipeDetail(e) {
+    var panel = ensureRecipePanel();
+    var html = recipeHeader(true);
+    html += '<div style="display:flex;align-items:center;gap:10px;margin:12px 0 2px;">' +
+        '<span class="recipeSwatch" style="width:28px;height:28px;border-radius:7px;background:' + recipeColor(e) + '"></span>' +
+        '<span style="font-size:20px;font-weight:bold;">' + recipeName(e) + '</span></div>';
+
+    var r = cookingRecipes[e];
+    html += '<div class="recipeSection">How to make it</div>';
+    if (r) {
+        if (r.note) { html += '<div style="opacity:.85;margin:2px 0 6px;font-size:13px;">' + r.note + '</div>'; }
+        html += '<div>' + r.from.map(recipeChip).join('<span style="opacity:.5;margin:0 3px;">+</span>') + '</div>';
+    } else {
+        html += '<div style="opacity:.7;font-size:13px;">Base ingredient — grab it from the menu.</div>';
+    }
+
+    var uses = recipeUses(e);
+    if (uses.length) {
+        html += '<div class="recipeSection">Use it to make</div><div>' + uses.map(recipeChip).join('') + '</div>';
+    }
+    panel.innerHTML = html;
+}
+
+// Add the "Recipes" button to the bottom control row (next to Reset/Saves/etc.)
+(function() {
+    var anchor = document.getElementById("settingsButton");
+    if (anchor && !document.getElementById("recipesButton")) {
+        var btn = document.createElement("button");
+        btn.id = "recipesButton";
+        btn.className = "controlButton";
+        btn.title = "Open the recipe book";
+        btn.innerText = "Recipes";
+        btn.onclick = function() {
+            var p = document.getElementById("recipeBookPanel");
+            if (p && p.style.display === "block") { closeRecipeBook(); }
+            else { openRecipeBook(); }
+        };
+        anchor.parentNode.appendChild(btn);
+    }
+}());
+
+// ====== TRIM THE MENU TO A COOKING GAME ======
+// Removes the default sandboxels categories you don't want (and their elements)
+// from the element picker, leaving your cooking / prepared / machines tabs.
+// The base elements still EXIST behind the scenes (so flour + water -> Dough keeps
+// working) -- they're just hidden from the menu. `water` is moved into the Cooking
+// tab so the bread recipe stays usable.
+var cookingHideCategories = ["land","liquids","life","powders","energy","weapons","gases","food","special"];
+function cookingTrimMenu() {
+    // keep water reachable (bread needs it): move its button into the Cooking tab
+    var waterBtn = document.getElementById("elementButton-water");
+    var cookingDiv = document.getElementById("category-cooking");
+    if (waterBtn && cookingDiv) { cookingDiv.appendChild(waterBtn); }
+    // delete each unwanted category tab + its element container
+    for (var i = 0; i < cookingHideCategories.length; i++) {
+        var cat = cookingHideCategories[i];
+        var tab = document.getElementById("categoryButton-" + cat);
+        var div = document.getElementById("category-" + cat);
+        if (tab) { tab.remove(); }
+        if (div) { div.remove(); }
+    }
+    // select the Cooking tab (or the first remaining one) so the picker isn't blank
+    var cookTab = document.getElementById("categoryButton-cooking");
+    if (cookTab) { cookTab.click(); }
+    else {
+        var firstTab = document.querySelector("#categoryControls .categoryButton");
+        if (firstTab) { firstTab.click(); }
+    }
+}
+setTimeout(cookingTrimMenu, 300);                                            // after the menu builds
+if (typeof runAfterReset === "function") { runAfterReset(cookingTrimMenu); } // re-apply on reset
