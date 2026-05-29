@@ -467,6 +467,12 @@ elements.Lime_zest = {
     state: "solid", behavior: behaviors.POWDER, density: 300
 }
 
+// --- Toasted (made in the Toaster) ---
+elements.Toast = {
+    color: "#b06a2c", category: "prepared",
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 400
+}
+
 // ====== MACHINES ======
 
 // --- Flip switch: a clickable on/off battery. Click any part of it with your
@@ -498,6 +504,18 @@ elements.Lamp = {
     tick: function(pixel) {
         if (pixel.charge) { pixel.color = "#ffff66"; }   // ON
         else              { pixel.color = "#555500"; }   // OFF
+    }
+}
+
+// --- Toaster: only toasts foods on its list. So far: Bread -> Toast.
+//     Put bread against the toaster and it slowly turns to toast. To toast
+//     more foods later, just add lines to its `reactions`.
+elements.Toaster = {
+    name: "toaster",
+    color: "#9a9a9a", category: "machines", state: "solid",
+    behavior: behaviors.WALL,
+    reactions: {
+        "Bread": { elem2: "Toast", chance: 0.05 }   // bread (neighbor) -> toast; toaster unchanged
     }
 }
 
@@ -567,19 +585,21 @@ if (!window._flipSwitchClickHook) {
 // ====== RECIPE BOOK ======
 // Adds a "Recipes" button to the bottom control row (next to Reset/Saves/Elem).
 // It opens a browser of every food item: how to make it, and what it makes.
+// Click any item to jump to its recipe, and so on.
 
-// Recipe data: result element -> { from:[ingredients], any:bool, note: method }
+// Recipe data: result element -> { from:[ingredients], note: optional method }
 var cookingRecipes = {
-    "Dough":         { from: ["Plain_flour", "water"] },
-    "Yeasty_dough":  { from: ["Dough", "Yeast"] },
-    "Bread":         { from: ["Yeasty_dough", "Sugar"] },
+    "Dough":        { from: ["Plain_flour", "water"] },
+    "Yeasty_dough": { from: ["Dough", "Yeast"] },
+    "Bread":        { from: ["Yeasty_dough", "Sugar"] },
     "Yolk":          { from: ["Egg"], note: "Crack an Egg by dropping it " + EGG_CRACK_HEIGHT + "+ pixels." },
     "Egg_white":     { from: ["Egg"], note: "Crack an Egg by dropping it " + EGG_CRACK_HEIGHT + "+ pixels." },
     "Breadcrumbs":   { from: ["Bread"],  note: "Use the Grate tool on Bread." },
     "Grated_cheese": { from: ["Cheese"], note: "Use the Grate tool on Cheese." },
     "Orange_zest":   { from: ["Oranges"], note: "Grate Oranges with the Grate tool." },
     "Lemon_zest":    { from: ["Lemons"],  note: "Grate Lemons with the Grate tool." },
-    "Lime_zest":     { from: ["Limes"],   note: "Grate Limes with the Grate tool." }
+    "Lime_zest":     { from: ["Limes"],   note: "Grate Limes with the Grate tool." },
+    "Toast":         { from: ["Bread"],   note: "Put Bread against a Toaster." }
 };
 
 function recipeName(e) {
