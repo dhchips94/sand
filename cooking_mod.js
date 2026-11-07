@@ -52,26 +52,66 @@ function clumpFallCore(pixel, onLand) {
     }
 }
 
-// Loose-powder settle for a pixel that has crumbled.
-function powderSettle(pixel) {
-    if (tryMove(pixel, pixel.x, pixel.y + 1)) { return; }   // straight down
-    var dir = Math.random() < 0.5 ? 1 : -1;                 // then a diagonal
-    if (tryMove(pixel, pixel.x + dir, pixel.y + 1)) { return; }
-    tryMove(pixel, pixel.x - dir, pixel.y + 1);
+// Clump fall: a connected blob falls as one RIGID clump while airborne. The
+// instant ANY part of the clump touches something beneath it, each pixel
+// becomes independent -- the touching ones stay (something is under them),
+// and the others keep falling straight down on their own. So it "drapes" over
+// uneven ground instead of staying rigid in midair.
+function clumpFall(pixel) {
+    if (pixel._landed) {
+        // independent, post-contact: just fall straight down if there's room
+        tryMove(pixel, pixel.x, pixel.y + 1);
+        return;
+    }
+    clumpFallCore(pixel, function(p) {
+        p._landed = true;   // first contact -> every blob pixel becomes independent
+    });
 }
 
-// Clump fall: falls as a rigid block while airborne. The moment it LANDS after
-// having fallen at all, it crumbles into loose powder. Placed flush on the floor
-// (0 px drop, never falls) -> stays a solid block.
-function clumpFall(pixel) {
-    if (pixel.crumbled) { powderSettle(pixel); return; }    // already crumbled -> act like powder
-    clumpFallCore(pixel, function(p) {
-        if ((p.fallen || 0) > 0) { p.crumbled = true; }     // landed after a fall -> crumble
-    });
+// Machine cook timer: flood-fill the connected blob touching a machine, tick up
+// EVERY pixel's cook timer (so hovering ANY of them shows the countdown, not just
+// the touching ones), and when the timer's up, turn the whole clump into `into`.
+function clumpCookTick(start, into, ticksNeeded) {
+    var elem = start.element, seen = {}, stack = [start], blob = [];
+    while (stack.length > 0) {
+        var p = stack.pop(), key = p.x + "," + p.y;
+        if (seen[key]) { continue; }
+        seen[key] = true;
+        blob.push(p);
+        var around = [
+            [p.x+1,p.y],   [p.x-1,p.y],   [p.x,p.y+1],   [p.x,p.y-1],
+            [p.x+1,p.y+1], [p.x-1,p.y+1], [p.x+1,p.y-1], [p.x-1,p.y-1]
+        ];
+        for (var n = 0; n < around.length; n++) {
+            var nx = around[n][0], ny = around[n][1];
+            if (seen[nx+","+ny] || isEmpty(nx,ny,true)) { continue; }
+            var np = pixelMap[nx][ny];
+            if (np && np.element === elem) { stack.push(np); }
+        }
+    }
+    var ready = false;
+    for (var i = 0; i < blob.length; i++) {
+        blob[i]._cookTick = pixelTicks;                       // whole clump handled this frame
+        blob[i].cookTimer = (blob[i].cookTimer || 0) + 1;
+        blob[i].cookTotal = ticksNeeded;                      // remembered so a hover can show the countdown
+        if (blob[i].cookTimer >= ticksNeeded) { ready = true; }
+    }
+    if (ready) {
+        for (var i = 0; i < blob.length; i++) { changePixel(blob[i], into); }
+    }
+}
+// Hover text showing a cooking countdown (used by foods that cook in a machine).
+function cookHoverStat(pixel) {
+    if (!pixel.cookTimer || !pixel.cookTotal) { return ""; }
+    var left = Math.ceil((pixel.cookTotal - pixel.cookTimer) / tps);
+    return "Cooking: " + (left > 0 ? left : 0) + "s";
 }
 
 // Egg: if it fell from EGG_CRACK_HEIGHT+ pixels up, it cracks into Yolk + Egg_white.
 var EGG_CRACK_HEIGHT = 11;
+var TOAST_SECONDS = 10;    // seconds of toaster contact: Bread -> Toast
+var OVEN_SECONDS = 7.5;    // seconds of oven contact: Uncooked garlic bread -> Garlic bread
+var BISCUIT_SECONDS = 5;   // seconds of oven contact: Biscuit dough -> Biscuits
 function eggClumpFall(pixel) {
     clumpFallCore(pixel, function(p) {
         if ((p.fallen || 0) >= EGG_CRACK_HEIGHT) {
@@ -148,7 +188,8 @@ elements.Plain_flour = {
     color: "#d4d4d4", category: "cooking",
     state: "solid", behavior: behaviors.POWDER, density: 600,
     reactions: {
-        "water": { elem1: "Dough", elem2: null, chance: 0.1 }
+        "water": { elem1: "Dough", elem2: null, chance: 0.1 },
+        "Butter": { elem1: "Biscuit_dough", elem2: null, chance: 0.05 }   // flour + butter -> biscuit dough
     }
 }
 elements.Self_raising_flour = {
@@ -399,7 +440,10 @@ elements.Seaweed = {
 // --- DAIRY & EGG ---
 elements.Butter = {
     color: "#d6ec2d", category: "cooking",
-    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 910
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 910,
+    reactions: {
+        "Garlic": { elem1: "Garlic_butter", elem2: null, chance: 0.05 }   // butter + garlic -> garlic butter
+    }
 }
 elements.Cheese = {
     color: "#e4f00e", category: "cooking",
@@ -430,19 +474,72 @@ elements.Dough = {
     color: "#e8dcc0", category: "prepared",
     state: "solid", behavior: behaviors.SUPPORTPOWDER, density: 700,
     reactions: {
-        "Yeast": { elem1: "Yeasty_dough", elem2: null, chance: 0.05 }
+        "Yeast": { elem1: "Yeasty_dough", elem2: null, chance: 0.05 },
+        "Plain_flour": { elem2: "Dough", chance: 0.05 },   // soak up leftover flour
+        "water": { elem2: null, chance: 0.05 }             // soak up leftover water
     }
 }
 elements.Yeasty_dough = {
     color: "#e0d2a8", category: "prepared",
     state: "solid", behavior: behaviors.SUPPORTPOWDER, density: 700,
     reactions: {
-        "Sugar": { elem1: "Bread", elem2: null, chance: 0.05 }
+        "Sugar": { elem1: "Bread", elem2: null, chance: 0.05 },
+        "Yeast": { elem2: "Yeasty_dough", chance: 0.05 },   // soak up leftover yeast
+        "Dough": { elem2: "Yeasty_dough", chance: 0.05 }    // soak up leftover dough
     }
 }
 elements.Bread = {
     color: "#c89b5a", category: "prepared",
-    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 400
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 400,
+    reactions: {
+        "Sugar": { elem2: "Bread", chance: 0.05 },          // soak up leftover sugar
+        "Yeasty_dough": { elem2: "Bread", chance: 0.05 },   // soak up leftover yeasty dough
+        "Garlic_butter": { elem1: "Uncooked_garlic_bread", elem2: null, chance: 0.05 }   // spread garlic butter on bread
+    },
+    hoverStat: cookHoverStat   // shows the toaster countdown next to Temp
+}
+// --- Garlic bread chain ---
+// Butter + Garlic                 -> Garlic_butter
+// Garlic_butter + Bread           -> Uncooked_garlic_bread
+// Uncooked_garlic_bread + Oven    -> Garlic_bread (after OVEN_SECONDS)
+elements.Garlic_butter = {
+    color: "#d8d24a", category: "prepared",
+    state: "liquid", behavior: behaviors.LIQUID, viscosity: 6000, density: 900,
+    reactions: {
+        "Butter": { elem2: "Garlic_butter", chance: 0.05 },   // soak up leftover butter
+        "Garlic": { elem2: "Garlic_butter", chance: 0.05 }    // soak up leftover garlic
+    }
+}
+elements.Uncooked_garlic_bread = {
+    name: "uncooked garlic bread",
+    color: "#dcc89a", category: "prepared",
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 410,
+    reactions: {
+        "Bread": { elem2: "Uncooked_garlic_bread", chance: 0.05 },   // soak up leftover bread
+        "Garlic_butter": { elem2: null, chance: 0.05 }               // soak up leftover garlic butter
+    },
+    hoverStat: cookHoverStat   // shows the oven countdown next to Temp
+}
+elements.Garlic_bread = {
+    color: "#d8b06a", category: "prepared",
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 420
+}
+
+// --- Biscuit chain ---
+// Plain_flour + Butter        -> Biscuit_dough
+// Biscuit_dough + Oven        -> Biscuits (after BISCUIT_SECONDS)
+elements.Biscuit_dough = {
+    color: "#e8d8b0", category: "prepared",
+    state: "solid", behavior: behaviors.SUPPORTPOWDER, density: 700,
+    reactions: {
+        "Plain_flour": { elem2: "Biscuit_dough", chance: 0.05 },   // soak up leftover flour
+        "Butter": { elem2: "Biscuit_dough", chance: 0.05 }         // soak up leftover butter
+    },
+    hoverStat: cookHoverStat   // shows the oven countdown next to Temp
+}
+elements.Biscuits = {
+    color: "#d4a86a", category: "prepared",
+    state: "solid", behavior: behaviors.WALL, tick: clumpFall, density: 420
 }
 
 // --- Grated items (made with the Grate tool) ---
@@ -507,15 +604,57 @@ elements.Lamp = {
     }
 }
 
-// --- Toaster: only toasts foods on its list. So far: Bread -> Toast.
-//     Put bread against the toaster and it slowly turns to toast. To toast
-//     more foods later, just add lines to its `reactions`.
+// --- Toaster: only works while POWERED (wire it to a flip switch). So far:
+//     Bread -> Toast. While powered it glows orange; bread touching it builds
+//     up a timer and turns to Toast after TOAST_SECONDS. Hover bread for the
+//     countdown. To toast more foods later, add their element to the `if` below.
 elements.Toaster = {
     name: "toaster",
     color: "#9a9a9a", category: "machines", state: "solid",
     behavior: behaviors.WALL,
-    reactions: {
-        "Bread": { elem2: "Toast", chance: 0.05 }   // bread (neighbor) -> toast; toaster unchanged
+    noMix: true,        // can't be shuffled by the mix tool
+    movable: false,     // can't be dragged -- stays put like a wall
+    conduct: 1,         // picks up charge from a wire / flip switch
+    insulate: true,
+    tick: function(pixel) {
+        pixel.color = pixel.charge ? "#d6552a" : "#9a9a9a";   // glows orange when powered
+        if (!pixel.charge) { return; }                        // off -> doesn't toast
+        for (var i = 0; i < adjacentCoords.length; i++) {
+            var x = pixel.x + adjacentCoords[i][0];
+            var y = pixel.y + adjacentCoords[i][1];
+            if (isEmpty(x, y, true)) { continue; }
+            var np = pixelMap[x][y];
+            // touching Bread -> tick the WHOLE connected clump (once per frame)
+            if (np && np.element === "Bread" && np._cookTick !== pixelTicks) {
+                clumpCookTick(np, "Toast", TOAST_SECONDS * tps);
+            }
+        }
+    }
+}
+
+// --- Oven: bakes anything in its recipe table. ALWAYS ON -- no wiring needed;
+//     just set bakeable food against it. The whole clump bakes; hover for the
+//     countdown. To add a new bakeable food, drop one entry in `ovenRecipes`.
+var ovenRecipes = {
+    "Uncooked_garlic_bread": { into: "Garlic_bread", seconds: OVEN_SECONDS },
+    "Biscuit_dough":         { into: "Biscuits",     seconds: BISCUIT_SECONDS }
+};
+elements.Oven = {
+    name: "oven",
+    color: "#7a3b1e", category: "machines", state: "solid",
+    behavior: behaviors.WALL,
+    noMix: true,        // can't be shuffled by the mix tool
+    movable: false,     // can't be dragged -- stays put like a wall
+    tick: function(pixel) {
+        for (var i = 0; i < adjacentCoords.length; i++) {
+            var x = pixel.x + adjacentCoords[i][0];
+            var y = pixel.y + adjacentCoords[i][1];
+            if (isEmpty(x, y, true)) { continue; }
+            var np = pixelMap[x][y];
+            if (!np || np._cookTick === pixelTicks) { continue; }
+            var r = ovenRecipes[np.element];
+            if (r) { clumpCookTick(np, r.into, r.seconds * tps); }
+        }
     }
 }
 
@@ -599,7 +738,12 @@ var cookingRecipes = {
     "Orange_zest":   { from: ["Oranges"], note: "Grate Oranges with the Grate tool." },
     "Lemon_zest":    { from: ["Lemons"],  note: "Grate Lemons with the Grate tool." },
     "Lime_zest":     { from: ["Limes"],   note: "Grate Limes with the Grate tool." },
-    "Toast":         { from: ["Bread"],   note: "Put Bread against a Toaster." }
+    "Toast":         { from: ["Bread"],   note: "Put Bread against a Toaster." },
+    "Garlic_butter":         { from: ["Butter", "Garlic"], note: "Press Garlic against Butter." },
+    "Uncooked_garlic_bread": { from: ["Garlic_butter", "Bread"], note: "Spread Garlic butter onto Bread." },
+    "Garlic_bread":          { from: ["Uncooked_garlic_bread"], note: "Bake Uncooked garlic bread in an Oven (" + OVEN_SECONDS + "s)." },
+    "Biscuit_dough":         { from: ["Plain_flour", "Butter"], note: "Press Butter into Flour." },
+    "Biscuits":              { from: ["Biscuit_dough"], note: "Bake Biscuit dough in an Oven (" + BISCUIT_SECONDS + "s)." }
 };
 
 function recipeName(e) {
@@ -679,7 +823,7 @@ function ensureRecipePanel() {
         "box-shadow:0 12px 48px #000b;display:none;";
     panel.addEventListener("click", function(ev) {   // event delegation for chips/nav/crumbs
         var t = ev.target;
-        while (t && t !== panel && !t.dataset.relem && !t.dataset.rnav && t.dataset.rcrumb === undefined) { t = t.parentNode; }
+        while (t && t !== panel && !t.dataset.relem && !t.dataset.rnav && t.dataset.rcrumb === undefined && !t.dataset.rplace) { t = t.parentNode; }
         if (!t || t === panel) { return; }
         if (t.dataset.relem)                     { recipeNavTo(t.dataset.relem); }
         else if (t.dataset.rcrumb !== undefined) {
@@ -687,6 +831,7 @@ function ensureRecipePanel() {
             recipeTrail = recipeTrail.slice(0, idx + 1);
             showRecipeDetail(recipeTrail[idx]);
         }
+        else if (t.dataset.rplace)               { selectElement(t.dataset.rplace); closeRecipeBook(); } // pick it to draw
         else if (t.dataset.rnav === "index")     { showRecipeIndex(); }
         else if (t.dataset.rnav === "close")     { closeRecipeBook(); }
     });
@@ -759,6 +904,7 @@ function showRecipeDetail(e) {
     html += '<div style="display:flex;align-items:center;gap:10px;margin:10px 0 2px;">' +
         '<span class="recipeSwatch" style="width:28px;height:28px;border-radius:7px;background:' + recipeColor(e) + '"></span>' +
         '<span style="font-size:20px;font-weight:bold;">' + recipeName(e) + '</span></div>';
+    html += '<button class="recipeNav" data-rplace="' + e + '" style="margin:4px 0 2px;">+ Place on canvas</button>';
 
     var r = cookingRecipes[e];
     html += '<div class="recipeSection">How to make it</div>';
@@ -803,6 +949,7 @@ function showRecipeDetail(e) {
 // working) -- they're just hidden from the menu. `water` is moved into the Cooking
 // tab so the bread recipe stays usable.
 var cookingHideCategories = ["land","liquids","life","powders","energy","weapons","gases","food","special"];
+var cookingKeepMachines  = ["wire", "Flip_switch", "Toaster", "Oven"];   // everything else in Machines is hidden
 function cookingTrimMenu() {
     // keep water reachable (bread needs it): move its button into the Cooking tab
     var waterBtn = document.getElementById("elementButton-water");
@@ -815,6 +962,14 @@ function cookingTrimMenu() {
         var div = document.getElementById("category-" + cat);
         if (tab) { tab.remove(); }
         if (div) { div.remove(); }
+    }
+    // trim the Machines tab down to just wire + our own machines (hide the rest)
+    var machinesDiv = document.getElementById("category-machines");
+    if (machinesDiv) {
+        var mkids = Array.prototype.slice.call(machinesDiv.children);
+        for (var m = 0; m < mkids.length; m++) {
+            if (cookingKeepMachines.indexOf(mkids[m].getAttribute("element")) === -1) { mkids[m].remove(); }
+        }
     }
     // select the Cooking tab (or the first remaining one) so the picker isn't blank
     var cookTab = document.getElementById("categoryButton-cooking");
